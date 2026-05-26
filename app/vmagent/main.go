@@ -12,6 +12,7 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 
+	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmagent/component"
 	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmagent/csvimport"
 	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmagent/datadogsketches"
 	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmagent/datadogv1"
@@ -172,11 +173,15 @@ func main() {
 	go httpserver.Serve(listenAddrs, requestHandler, httpserver.ServeOptions{
 		UseProxyProtocol: useProxyProtocol,
 	})
+	componentReporterStopCh := make(chan struct{})
+	componentReporter := component.NewReporterFromFlags(listenAddrs)
+	go componentReporter.Run(componentReporterStopCh)
 	logger.Infof("started vmagent in %.3f seconds", time.Since(startTime).Seconds())
 
 	pushmetrics.Init()
 	sig := procutil.WaitForSigterm()
 	logger.Infof("received signal %s", sig)
+	close(componentReporterStopCh)
 	remotewrite.StopIngestionRateLimiter()
 	pushmetrics.Stop()
 
