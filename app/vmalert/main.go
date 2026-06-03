@@ -13,6 +13,7 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 
+	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmalert/component"
 	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmalert/config"
 	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmalert/datasource"
 	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmalert/notifier"
@@ -186,10 +187,20 @@ func main() {
 	go httpserver.Serve(listenAddrs, rh.handler, httpserver.ServeOptions{
 		UseProxyProtocol: useProxyProtocol,
 	})
+	componentReporterStopCh := make(chan struct{})
+	componentReporter := component.NewReporterFromFlags(listenAddrs, *rulePath, func(files []string) error {
+		_, err := config.Parse(files, validateTplFn, *validateExpressions)
+		return err
+	}, func() error {
+		procutil.SelfSIGHUP()
+		return nil
+	})
+	go componentReporter.Run(componentReporterStopCh)
 
 	pushmetrics.Init()
 	sig := procutil.WaitForSigterm()
 	logger.Infof("service received signal %s", sig)
+	close(componentReporterStopCh)
 	pushmetrics.Stop()
 
 	if err := httpserver.Stop(listenAddrs); err != nil {
