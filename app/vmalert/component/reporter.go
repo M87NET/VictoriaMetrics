@@ -33,6 +33,8 @@ var (
 	componentID              = flag.String("componentReporter.componentID", "vmalert", "Stable component id reported to monitor center")
 	componentName            = flag.String("componentReporter.name", "vmalert", "Human-readable component name reported to monitor center")
 	zone                     = flag.String("componentReporter.zone", "", "Optional zone, IDC or network domain reported to monitor center")
+	endpoint                 = flag.String("componentReporter.endpoint", "", "Optional externally reachable vmalert endpoint reported to monitor center. Defaults to the first HTTP listen address")
+	metricsEndpoint          = flag.String("componentReporter.metricsEndpoint", "", "Optional externally reachable vmalert metrics endpoint reported to monitor center. Defaults to endpoint + /metrics from the first HTTP listen address")
 	managedConfigFile        = flag.String("componentReporter.managedConfigFile", "", "Local vmalert rule file atomically replaced by monitor center managed config. Defaults to the only -rule file when exactly one -rule is configured")
 	currentConfigVersion     = flag.String("componentReporter.currentConfigVersion", "", "Current config version reported to monitor center")
 	currentConfigVersionFile = flag.String("componentReporter.currentConfigVersionFile", "", "File containing the currently applied monitor center config version")
@@ -170,8 +172,8 @@ func NewReporterFromFlagsWithSnapshot(listenAddrs []string, ruleFiles []string, 
 		ComponentID:              *componentID,
 		Name:                     *componentName,
 		Zone:                     *zone,
-		Endpoint:                 firstHTTPListenEndpoint(listenAddrs, ""),
-		MetricsEndpoint:          firstHTTPListenEndpoint(listenAddrs, "/metrics"),
+		Endpoint:                 firstNonEmptyString(*endpoint, firstHTTPListenEndpoint(listenAddrs, "")),
+		MetricsEndpoint:          firstNonEmptyString(*metricsEndpoint, firstHTTPListenEndpoint(listenAddrs, "/metrics")),
 		ManagedConfigFile:        localManagedConfigFile,
 		CurrentConfigVersion:     *currentConfigVersion,
 		CurrentConfigVersionFile: *currentConfigVersionFile,

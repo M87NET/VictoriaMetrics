@@ -103,6 +103,22 @@ func TestReporterSyncFetchesAndAppliesDesiredConfig(t *testing.T) {
 	}
 }
 
+func TestReporterKeepsExplicitEndpoints(t *testing.T) {
+	r := NewReporter(Config{
+		ComponentID:     "vmalert-main",
+		Endpoint:        "http://10.254.25.181:31610",
+		MetricsEndpoint: "http://10.254.25.181:31610/metrics",
+	}, nil)
+
+	payload := r.registerPayload()
+	if got, want := payload["endpoint"], "http://10.254.25.181:31610"; got != want {
+		t.Fatalf("unexpected endpoint; got %q; want %q", got, want)
+	}
+	if got, want := payload["metrics_endpoint"], "http://10.254.25.181:31610/metrics"; got != want {
+		t.Fatalf("unexpected metrics endpoint; got %q; want %q", got, want)
+	}
+}
+
 func TestApplyManagedConfigValidatesAndReplacesFile(t *testing.T) {
 	dir := t.TempDir()
 	managedFile := filepath.Join(dir, "rules.yml")
