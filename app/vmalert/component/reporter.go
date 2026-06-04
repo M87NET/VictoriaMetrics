@@ -141,6 +141,11 @@ func NewReporter(cfg Config, snapshot SnapshotProvider) *Reporter {
 
 // NewReporterFromFlags returns a reporter configured from command-line flags.
 func NewReporterFromFlags(listenAddrs []string, ruleFiles []string, validate func([]string) error, reload func() error) *Reporter {
+	return NewReporterFromFlagsWithSnapshot(listenAddrs, ruleFiles, validate, reload, nil)
+}
+
+// NewReporterFromFlagsWithSnapshot returns a reporter configured from command-line flags and runtime snapshot provider.
+func NewReporterFromFlagsWithSnapshot(listenAddrs []string, ruleFiles []string, validate func([]string) error, reload func() error, snapshot SnapshotProvider) *Reporter {
 	localManagedConfigFile := strings.TrimSpace(*managedConfigFile)
 	if localManagedConfigFile == "" && len(ruleFiles) == 1 {
 		localManagedConfigFile = ruleFiles[0]
@@ -176,7 +181,7 @@ func NewReporterFromFlags(listenAddrs []string, ruleFiles []string, validate fun
 			"rule_files":        ruleFiles,
 		},
 		ApplyConfig: applyConfig,
-	}, nil)
+	}, snapshot)
 }
 
 // Enabled reports whether the reporter has enough configuration to send data.

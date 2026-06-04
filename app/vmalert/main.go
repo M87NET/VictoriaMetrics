@@ -188,13 +188,13 @@ func main() {
 		UseProxyProtocol: useProxyProtocol,
 	})
 	componentReporterStopCh := make(chan struct{})
-	componentReporter := component.NewReporterFromFlags(listenAddrs, *rulePath, func(files []string) error {
+	componentReporter := component.NewReporterFromFlagsWithSnapshot(listenAddrs, *rulePath, func(files []string) error {
 		_, err := config.Parse(files, validateTplFn, *validateExpressions)
 		return err
 	}, func() error {
 		procutil.SelfSIGHUP()
 		return nil
-	})
+	}, &vmalertSnapshotProvider{m: manager})
 	go componentReporter.Run(componentReporterStopCh)
 
 	pushmetrics.Init()
