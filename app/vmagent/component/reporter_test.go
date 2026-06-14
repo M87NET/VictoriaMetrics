@@ -125,6 +125,49 @@ func TestHeartbeatPayloadDegradedOnLastError(t *testing.T) {
 	}
 }
 
+func TestNewReporterFromFlagsUsesExplicitComponentEndpoints(t *testing.T) {
+	oldEnabled := *enabled
+	oldRegisterURL := *registerURL
+	oldHeartbeatURL := *heartbeatURL
+	oldComponentID := *componentID
+	oldComponentName := *componentName
+	oldEndpoint := *endpoint
+	oldMetricsEndpoint := *metricsEndpoint
+	defer func() {
+		*enabled = oldEnabled
+		*registerURL = oldRegisterURL
+		*heartbeatURL = oldHeartbeatURL
+		*componentID = oldComponentID
+		*componentName = oldComponentName
+		*endpoint = oldEndpoint
+		*metricsEndpoint = oldMetricsEndpoint
+	}()
+
+	*enabled = true
+	*registerURL = "http://monitor-center.invalid/monitor/components/register"
+	*heartbeatURL = "http://monitor-center.invalid/monitor/components/heartbeat"
+	*componentID = "vmagent-shard-0"
+	*componentName = "vmagent shard 0"
+	*endpoint = "http://10.107.251.101:8429"
+	*metricsEndpoint = "http://10.107.251.101:8429/metrics"
+
+	r := NewReporterFromFlags([]string{":8429"})
+	registerPayload := r.registerPayload()
+	if got, want := registerPayload["endpoint"], "http://10.107.251.101:8429"; got != want {
+		t.Fatalf("unexpected register endpoint; got %v; want %v", got, want)
+	}
+	if got, want := registerPayload["metrics_endpoint"], "http://10.107.251.101:8429/metrics"; got != want {
+		t.Fatalf("unexpected register metrics endpoint; got %v; want %v", got, want)
+	}
+	heartbeatPayload := r.heartbeatPayload()
+	if got, want := heartbeatPayload["endpoint"], "http://10.107.251.101:8429"; got != want {
+		t.Fatalf("unexpected heartbeat endpoint; got %v; want %v", got, want)
+	}
+	if got, want := heartbeatPayload["metrics_endpoint"], "http://10.107.251.101:8429/metrics"; got != want {
+		t.Fatalf("unexpected heartbeat metrics endpoint; got %v; want %v", got, want)
+	}
+}
+
 func TestFirstHTTPListenEndpoint(t *testing.T) {
 	f := func(addrs []string, path, want string) {
 		t.Helper()

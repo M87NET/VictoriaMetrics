@@ -27,6 +27,8 @@ var (
 	componentID          = flag.String("componentReporter.componentID", "vmagent", "Stable component id reported to monitor center")
 	componentName        = flag.String("componentReporter.name", "vmagent", "Human-readable component name reported to monitor center")
 	zone                 = flag.String("componentReporter.zone", "", "Optional zone, IDC or network domain reported to monitor center")
+	endpoint             = flag.String("componentReporter.endpoint", "", "Optional externally reachable vmagent endpoint reported to monitor center. Defaults to the first HTTP listen address")
+	metricsEndpoint      = flag.String("componentReporter.metricsEndpoint", "", "Optional externally reachable vmagent metrics endpoint reported to monitor center. Defaults to endpoint + /metrics from the first HTTP listen address")
 	currentConfigVersion = flag.String("componentReporter.currentConfigVersion", "", "Current config version reported to monitor center")
 	heartbeatInterval    = flag.Duration("componentReporter.heartbeatInterval", time.Minute, "Interval for sending vmagent component heartbeat")
 )
@@ -96,8 +98,8 @@ func NewReporterFromFlags(listenAddrs []string) *Reporter {
 		ComponentID:          *componentID,
 		Name:                 *componentName,
 		Zone:                 *zone,
-		Endpoint:             firstHTTPListenEndpoint(listenAddrs, ""),
-		MetricsEndpoint:      firstHTTPListenEndpoint(listenAddrs, "/metrics"),
+		Endpoint:             firstNonEmptyString(*endpoint, firstHTTPListenEndpoint(listenAddrs, "")),
+		MetricsEndpoint:      firstNonEmptyString(*metricsEndpoint, firstHTTPListenEndpoint(listenAddrs, "/metrics")),
 		CurrentConfigVersion: *currentConfigVersion,
 		HeartbeatInterval:    *heartbeatInterval,
 		Workload: map[string]interface{}{
@@ -258,6 +260,16 @@ func componentStatus(lastError string) string {
 		return "degraded"
 	}
 	return "online"
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func firstHTTPListenEndpoint(listenAddrs []string, path string) string {

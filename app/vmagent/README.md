@@ -15,10 +15,12 @@ Example:
   -componentReporter.componentID=vmagent-bj-01 \
   -componentReporter.name=vmagent-bj-01 \
   -componentReporter.zone=bj \
+  -componentReporter.endpoint=http://10.107.251.101:8429 \
+  -componentReporter.metricsEndpoint=http://10.107.251.101:8429/metrics \
   -componentReporter.registerURL=http://monitor-center.example/monitor/components/register \
   -componentReporter.heartbeatURL=http://monitor-center.example/monitor/components/heartbeat \
   -componentReporter.currentConfigVersion=cfg-20260526-001 \
   -componentReporter.apiKey=secret
 ```
 
-The registration payload uses `component_type=vmagent` and reports `http_sd`, `reload`, `remote_write` and `metrics` capabilities. Heartbeats report `online` or `degraded`, current config version, endpoint, metrics endpoint and workload metadata.
+The registration payload uses `component_type=vmagent` and reports `http_sd`, `reload`, `remote_write` and `metrics` capabilities. Heartbeats report `online` or `degraded`, current config version, endpoint, metrics endpoint and workload metadata. Set `-componentReporter.endpoint` and `-componentReporter.metricsEndpoint` to the externally reachable vmagent URLs; when omitted, they default to the first HTTP listen address.
