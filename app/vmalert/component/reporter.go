@@ -20,6 +20,19 @@ import (
 )
 
 const componentType = "vmalert"
+const vmalertConfigBundleKind = "vmalert_config_bundle"
+
+type vmalertConfigBundle struct {
+	Kind          string                    `json:"kind"`
+	RuleFile      string                    `json:"rule_file"`
+	TemplateFiles []string                  `json:"template_files"`
+	Files         []vmalertConfigBundleFile `json:"files"`
+}
+
+type vmalertConfigBundleFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
 
 var (
 	enabled     = flag.Bool("componentReporter.enabled", false, "Whether to enable reporting vmalert component registration and heartbeat to monitor center")
@@ -413,6 +426,10 @@ func ApplyManagedConfig(opts ApplyOptions) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	managedContent, extraFiles, err := parseManagedConfigContent(managedFile, opts.Content)
+	if err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(managedFile)+".*.tmp")
 	if err != nil {
 		return err
@@ -421,7 +438,7 @@ func ApplyManagedConfig(opts ApplyOptions) error {
 	defer func() {
 		_ = os.Remove(tmpName)
 	}()
-	if _, err := tmp.WriteString(opts.Content); err != nil {
+	if _, err := tmp.WriteString(managedContent); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -431,6 +448,11 @@ func ApplyManagedConfig(opts ApplyOptions) error {
 	validationFiles := replaceManagedConfigFile(opts.RuleFiles, managedFile, tmpName)
 	if opts.Validate != nil {
 		if err := opts.Validate(validationFiles); err != nil {
+			return err
+		}
+	}
+	for _, file := range extraFiles {
+		if err := writeBundleFileAtomic(dir, file); err != nil {
 			return err
 		}
 	}
@@ -451,6 +473,118 @@ func ApplyManagedConfig(opts ApplyOptions) error {
 		}
 	}
 	return nil
+}
+
+func parseManagedConfigContent(managedFile string, content string) (string, []vmalertConfigBundleFile, error) {
+	trimmed := strings.TrimSpace(content)
+	if !strings.HasPrefix(trimmed, "{") {
+		return content, nil, nil
+	}
+	var bundle vmalertConfigBundle
+	if err := json.Unmarshal([]byte(content), &bundle); err != nil || bundle.Kind != vmalertConfigBundleKind {
+		return content, nil, nil
+	}
+	if len(bundle.Files) == 0 {
+		return "", nil, fmt.Errorf("vmalert config bundle has no files")
+	}
+	ruleFile := strings.TrimSpace(bundle.RuleFile)
+	if ruleFile == "" {
+		ruleFile = filepath.Base(managedFile)
+	}
+	ruleFile, err := safeBundlePath(ruleFile)
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid bundle rule file: %w", err)
+	}
+
+	filesByPath := make(map[string]vmalertConfigBundleFile, len(bundle.Files))
+	var fallbackRuleFile string
+	for _, file := range bundle.Files {
+		cleanPath, err := safeBundlePath(file.Path)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid bundle file path %q: %w", file.Path, err)
+		}
+		file.Path = cleanPath
+		filesByPath[cleanPath] = file
+		if fallbackRuleFile == "" && isRuleFile(cleanPath) {
+			fallbackRuleFile = cleanPath
+		}
+	}
+
+	for _, name := range bundle.TemplateFiles {
+		cleanPath, err := safeBundlePath(name)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid template file path %q: %w", name, err)
+		}
+		if _, ok := filesByPath[cleanPath]; !ok {
+			return "", nil, fmt.Errorf("template file %q is missing from bundle files", cleanPath)
+		}
+	}
+
+	rule, ok := filesByPath[ruleFile]
+	if !ok && fallbackRuleFile != "" {
+		rule = filesByPath[fallbackRuleFile]
+		ok = true
+	}
+	if !ok {
+		return "", nil, fmt.Errorf("rule file %q is missing from bundle files", ruleFile)
+	}
+
+	extraFiles := make([]vmalertConfigBundleFile, 0, len(filesByPath)-1)
+	for path, file := range filesByPath {
+		if path == rule.Path {
+			continue
+		}
+		extraFiles = append(extraFiles, file)
+	}
+	return rule.Content, extraFiles, nil
+}
+
+func safeBundlePath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+	if filepath.IsAbs(path) {
+		return "", fmt.Errorf("absolute path is not allowed")
+	}
+	cleanPath := filepath.Clean(path)
+	if cleanPath == "." || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) || cleanPath == ".." {
+		return "", fmt.Errorf("path must stay under managed config directory")
+	}
+	return cleanPath, nil
+}
+
+func isRuleFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".yml" || ext == ".yaml"
+}
+
+func writeBundleFileAtomic(baseDir string, file vmalertConfigBundleFile) error {
+	cleanPath, err := safeBundlePath(file.Path)
+	if err != nil {
+		return err
+	}
+	target := filepath.Join(baseDir, cleanPath)
+	targetDir := filepath.Dir(target)
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(targetDir, "."+filepath.Base(target)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpName)
+	}()
+	if _, err := tmp.WriteString(file.Content); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, target)
 }
 
 func replaceManagedConfigFile(ruleFiles []string, managedFile string, replacement string) []string {

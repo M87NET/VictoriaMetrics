@@ -176,6 +176,110 @@ func TestApplyManagedConfigValidatesAndReplacesFile(t *testing.T) {
 	}
 }
 
+func TestApplyManagedConfigBundleWritesRuleAndTemplates(t *testing.T) {
+	dir := t.TempDir()
+	managedFile := filepath.Join(dir, "monitor_center_managed.yml")
+	versionFile := filepath.Join(dir, "rules.version")
+	if err := os.WriteFile(managedFile, []byte("old"), 0o600); err != nil {
+		t.Fatalf("cannot write old config: %s", err)
+	}
+
+	bundle := vmalertConfigBundle{
+		Kind:          vmalertConfigBundleKind,
+		RuleFile:      "monitor_center_managed.yml",
+		TemplateFiles: []string{"unique_nqa_template.tmpl"},
+		Files: []vmalertConfigBundleFile{
+			{Path: "monitor_center_managed.yml", Content: "groups:\n- name: managed\n"},
+			{Path: "unique_nqa_template.tmpl", Content: `{{ define "nqa.line" }}ok{{ end }}` + "\n"},
+		},
+	}
+	content, err := json.Marshal(bundle)
+	if err != nil {
+		t.Fatalf("cannot marshal bundle: %s", err)
+	}
+
+	var validatedFiles []string
+	reloaded := false
+	err = ApplyManagedConfig(ApplyOptions{
+		ManagedConfigFile: managedFile,
+		VersionFile:       versionFile,
+		RuleFiles:         []string{managedFile},
+		Version:           "cfg-bundle",
+		Content:           string(content),
+		Validate: func(files []string) error {
+			validatedFiles = append([]string(nil), files...)
+			data, err := os.ReadFile(files[0])
+			if err != nil {
+				return err
+			}
+			if got, want := string(data), "groups:\n- name: managed\n"; got != want {
+				t.Fatalf("validator saw unexpected rule content; got %q; want %q", got, want)
+			}
+			return nil
+		},
+		Reload: func() error {
+			reloaded = true
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected apply error: %s", err)
+	}
+	if len(validatedFiles) != 1 || validatedFiles[0] == managedFile {
+		t.Fatalf("validation must use temporary replacement file; got %v", validatedFiles)
+	}
+	ruleContent, err := os.ReadFile(managedFile)
+	if err != nil {
+		t.Fatalf("cannot read managed config: %s", err)
+	}
+	if got, want := string(ruleContent), "groups:\n- name: managed\n"; got != want {
+		t.Fatalf("unexpected managed config content; got %q; want %q", got, want)
+	}
+	templateContent, err := os.ReadFile(filepath.Join(dir, "unique_nqa_template.tmpl"))
+	if err != nil {
+		t.Fatalf("cannot read template file: %s", err)
+	}
+	if got, want := string(templateContent), `{{ define "nqa.line" }}ok{{ end }}`+"\n"; got != want {
+		t.Fatalf("unexpected template content; got %q; want %q", got, want)
+	}
+	version, err := os.ReadFile(versionFile)
+	if err != nil {
+		t.Fatalf("cannot read version file: %s", err)
+	}
+	if got, want := string(version), "cfg-bundle\n"; got != want {
+		t.Fatalf("unexpected version file content; got %q; want %q", got, want)
+	}
+	if !reloaded {
+		t.Fatalf("reload callback wasn't called")
+	}
+}
+
+func TestApplyManagedConfigBundleRejectsUnsafePath(t *testing.T) {
+	dir := t.TempDir()
+	managedFile := filepath.Join(dir, "monitor_center_managed.yml")
+	bundle := vmalertConfigBundle{
+		Kind:     vmalertConfigBundleKind,
+		RuleFile: "monitor_center_managed.yml",
+		Files: []vmalertConfigBundleFile{
+			{Path: "monitor_center_managed.yml", Content: "groups: []\n"},
+			{Path: "../escape.tmpl", Content: `{{ define "x" }}bad{{ end }}`},
+		},
+	}
+	content, err := json.Marshal(bundle)
+	if err != nil {
+		t.Fatalf("cannot marshal bundle: %s", err)
+	}
+
+	err = ApplyManagedConfig(ApplyOptions{
+		ManagedConfigFile: managedFile,
+		Version:           "cfg-bad",
+		Content:           string(content),
+	})
+	if err == nil {
+		t.Fatalf("expected unsafe path error")
+	}
+}
+
 func writeAPIResponse(t *testing.T, w http.ResponseWriter, data interface{}) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
